@@ -456,6 +456,7 @@ if env['os'] == 'windows':
     env['ASFLAGS'] = []
 elif env['os'] == 'android':
     env['AS'] = env['CC']
+    env.Append(ASFLAGS = env['extra_cc_flags'])
 else:
     env['AR'] = toolchain_prefix + "ar"
 
