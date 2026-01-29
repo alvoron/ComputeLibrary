@@ -454,6 +454,8 @@ if env['os'] == 'windows':
     env['RANLIB'] = "llvm-ranlib"
     env['AS'] = env['CC']
     env['ASFLAGS'] = []
+elif env['os'] == 'android':
+    env['AS'] = env['CC']
 else:
     env['AR'] = toolchain_prefix + "ar"
 
