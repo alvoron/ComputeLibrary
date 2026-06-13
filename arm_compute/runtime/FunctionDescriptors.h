@@ -67,15 +67,17 @@ struct Conv2dInfo
                const ActivationLayerInfo &act_info,
                bool                       enable_fast_math,
                unsigned int               num_groups,
-               const WeightsInfo         &weights_info = WeightsInfo(),
-               bool                       use_fp32_acc = false)
+               const WeightsInfo         &weights_info         = WeightsInfo(),
+               bool                       use_fp32_acc         = false,
+               bool                       use_direct_i8_s8_f32 = false)
         : conv_info(conv_info),
           dilation(dilation),
           act_info(act_info),
           enable_fast_math(enable_fast_math),
           num_groups(num_groups),
           weights_info(weights_info),
-          use_fp32_acc(use_fp32_acc)
+          use_fp32_acc(use_fp32_acc),
+          use_direct_i8_s8_f32(use_direct_i8_s8_f32)
     {
     }
 
@@ -85,7 +87,8 @@ struct Conv2dInfo
     bool                enable_fast_math{false};
     unsigned int        num_groups{1};
     WeightsInfo         weights_info{};
-    bool                use_fp32_acc{false}; // relevant only for FP16
+    bool                use_fp32_acc{false};         // relevant only for FP16
+    bool                use_direct_i8_s8_f32{false}; // route QASYMM8_SIGNED->F32 through CpuGemmDirectConv2d
 };
 
 /** Descriptor used by the 3d Convolution function */

@@ -106,7 +106,6 @@ void interleave_block( TOut * &out, const TIn * const *in, size_t width, size_t 
         int32_t *out_int32 = reinterpret_cast<int32_t *>(out);
 
         memcpy(out_int32, the_sums.data(), int_by * sizeof(int32_t));
-
         out = reinterpret_cast<TOut *>(out_int32 + int_by);
     }
 }

@@ -91,35 +91,33 @@ public:
      * |QASYMM8_SIGNED |QASYMM8_SIGNED     |F32    |F32            |
      * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
      *
-     * @param[in]  src              Source tensor info. 3 lower dimensions represent a single input [width, height, IFM],
-     *                              while every optional dimension from 4 and above represent a batch of inputs.
-     *                              Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
-     * @param[in]  weights          Weights tensor info. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM].
-     *                              Data type supported: Same as @p src, also could be QSYMM8_PER_CHANNEL or QASYMM8_SIGNED if input is QASYMM8/QASYMM8_SIGNED.
-     * @param[in]  biases           Biases tensor info. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
-     *                              Data type supported: Same as @p src, except for input of QASYMM8/QASYMM8_SIGNED type where biases should be of S32 type.
-     *                              For F32 dequantization the bias must be F32.
-     * @param[out] dst              Destination tensor info. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
-     *                              Data types supported: Same as @p src.
-     * @param[in]  conv_info        Contains padding and stride information described in @ref PadStrideInfo.
-     * @param[in]  weights_info     Specifies if the weights tensor has been reshaped with NEWeightsReshapeKernel. If this is not part of the fully connected layer the weights
-     *                              tensor has also been transposed with cpu::kernels::CpuGemmTranspose1xWKernel. Data type supported: Same as @p input.
-     * @param[in]  dilation         (Optional) Dilation, in elements, across x and y. Defaults to (1, 1).
-     * @param[in]  act_info         (Optional) Activation layer information in case of a fused activation. Only RELU, BOUNDED_RELU and LU_BOUNDED_RELU supported.
-     * @param[in]  enable_fast_math (Optional) Enable fast math computation. In case this flag were set, the function could dispatch the fastest implementation
-     *                              available which may introduce a drop of accuracy as well. Default is false
-     * @param[in]  num_groups       (Optional) Number of groups when performing a grouped convolution. num_groups != 1 is not supported
+     * The QASYMM8_SIGNED→F32 row (F32 bias, F32 dst) is only supported when @p use_direct_i8_s8_f32 is true.
+     * It requires NHWC layout and no dilation, and uses the single-kernel CpuGemmDirectConv2d path.
+     *
+     * @param[in]  src                   Source tensor info.
+     * @param[in]  weights               Weights tensor info.
+     * @param[in]  biases                Biases tensor info.
+     * @param[out] dst                   Destination tensor info.
+     * @param[in]  conv_info             Contains padding and stride information.
+     * @param[in]  weights_info         Weights reshape info.
+     * @param[in]  dilation             (Optional) Dilation. Defaults to (1, 1).
+     * @param[in]  act_info             (Optional) Fused activation.
+     * @param[in]  enable_fast_math     (Optional) Enable fast math. Default is false.
+     * @param[in]  num_groups           (Optional) Number of groups. num_groups != 1 is not supported.
+     * @param[in]  use_direct_i8_s8_f32 (Optional) When true and input is QASYMM8_SIGNED with F32 output,
+     *                                   route via the single-kernel direct-conv path (NHWC, no dilation). Default is false.
      */
     void configure(ITensorInfo               *src,
                    ITensorInfo               *weights,
                    const ITensorInfo         *biases,
                    ITensorInfo               *dst,
                    const PadStrideInfo       &conv_info,
-                   const WeightsInfo         &weights_info     = WeightsInfo(),
-                   const Size2D              &dilation         = Size2D(1U, 1U),
-                   const ActivationLayerInfo &act_info         = ActivationLayerInfo(),
-                   bool                       enable_fast_math = false,
-                   unsigned int               num_groups       = 1);
+                   const WeightsInfo         &weights_info         = WeightsInfo(),
+                   const Size2D              &dilation             = Size2D(1U, 1U),
+                   const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
+                   bool                       enable_fast_math     = false,
+                   unsigned int               num_groups           = 1,
+                   bool                       use_direct_i8_s8_f32 = false);
     /** Static function to check if given info will lead to a valid configuration of @ref CpuConv2d
      *
      * Similar to CpuConv2d::configure()
@@ -131,27 +129,24 @@ public:
                            const ITensorInfo         *biases,
                            const ITensorInfo         *output,
                            const PadStrideInfo       &conv_info,
-                           const WeightsInfo         &weights_info     = WeightsInfo(),
-                           const Size2D              &dilation         = Size2D(1U, 1U),
-                           const ActivationLayerInfo &act_info         = ActivationLayerInfo(),
-                           bool                       enable_fast_math = false,
-                           unsigned int               num_groups       = 1);
+                           const WeightsInfo         &weights_info         = WeightsInfo(),
+                           const Size2D              &dilation             = Size2D(1U, 1U),
+                           const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
+                           bool                       enable_fast_math     = false,
+                           unsigned int               num_groups           = 1,
+                           bool                       use_direct_i8_s8_f32 = false);
     /** Static function to check if given info will return the convolution called by @ref CpuConv2d
      *
-     * @param[in] src              Source tensor info. 3 lower dimensions represent a single input [width, height, IFM],
-     *                             while every optional dimension from 4 and above represent a batch of inputs.
-     *                             Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
-     * @param[in] weights          Weights tensor info. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM].
-     *                             Data type supported:Same as @p src, also could be QSYMM8_PER_CHANNEL or QASYMM8_SIGNED if input is QASYMM8/QASYMM8_SIGNED.
-     * @param[in] dst              Destination tensor info. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
-     *                             Data types supported: Same as @p src.
-     * @param[in] conv_info        Contains padding and stride information described in @ref PadStrideInfo.
-     * @param[in] weights_info     Specifies if the weights tensor has been reshaped with NEWeightsReshapeKernel. If this is not part of the fully connected layer the weights
-     *                             tensor has also been transposed with cpu::kernels::CpuGemmTranspose1xWKernel. Data type supported: Same as @p input.
-     * @param[in] dilation         (Optional) Dilation, in elements, across x and y. Defaults to (1, 1).
-     * @param[in] act_info         (Optional) Activation layer information in case of a fused activation.
-     * @param[in] enable_fast_math (Optional) Enable fast math computation. In case this flag were set, the function could dispatch the fastest implementation
-     *                             available which may introduce a drop of accuracy as well. Default is false
+     * @param[in] src                   Source tensor info.
+     * @param[in] weights               Weights tensor info.
+     * @param[in] dst                   Destination tensor info.
+     * @param[in] conv_info             Contains padding and stride information.
+     * @param[in] weights_info         Weights reshape info.
+     * @param[in] dilation             (Optional) Dilation. Defaults to (1, 1).
+     * @param[in] act_info             (Optional) Fused activation.
+     * @param[in] enable_fast_math     (Optional) Enable fast math. Default is false.
+     * @param[in] use_direct_i8_s8_f32 (Optional) When true and input is QASYMM8_SIGNED with F32 output,
+     *                                  force GEMM_CONV2D method. Default is false.
      *
      * @return the Convolution Method Hint
      */
@@ -159,10 +154,11 @@ public:
                                                     const ITensorInfo         *weights,
                                                     const ITensorInfo         *dst,
                                                     const PadStrideInfo       &conv_info,
-                                                    const WeightsInfo         &weights_info     = WeightsInfo(),
-                                                    const Size2D              &dilation         = Size2D(1U, 1U),
-                                                    const ActivationLayerInfo &act_info         = ActivationLayerInfo(),
-                                                    bool                       enable_fast_math = false);
+                                                    const WeightsInfo         &weights_info         = WeightsInfo(),
+                                                    const Size2D              &dilation             = Size2D(1U, 1U),
+                                                    const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
+                                                    bool                       enable_fast_math     = false,
+                                                    bool                       use_direct_i8_s8_f32 = false);
     // Inherited methods overridden:
     void                             run(ITensorPack &tensors) override;
     void                             prepare(ITensorPack &constants) override;

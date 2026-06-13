@@ -55,6 +55,7 @@ public:
      * |:--------------|:--------------|:--------------|:--------------|
      * |QASYMM8        |QASYMM8        |S32            |QASYMM8        |
      * |QASYMM8_SIGNED |QASYMM8_SIGNED |S32            |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED |F32            |F32            | (requires Conv2dInfo::use_direct_i8_s8_f32=true)
      * |F16            |F16            |F16            |F16            |
      * |F32            |F32            |F32            |F32            |
      * |BFLOAT16       |BFLOAT16       |BFLOAT16       |BFLOAT16       |

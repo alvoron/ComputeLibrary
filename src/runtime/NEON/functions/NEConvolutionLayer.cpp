@@ -71,7 +71,8 @@ void NEConvolutionLayer::configure(ITensor                   *input,
                                    const Size2D              &dilation,
                                    const ActivationLayerInfo &act_info,
                                    bool                       enable_fast_math,
-                                   unsigned int               num_groups)
+                                   unsigned int               num_groups,
+                                   bool                       use_direct_i8_s8_f32)
 {
     ARM_COMPUTE_TRACE_EVENT(ARM_COMPUTE_PROF_CAT_CPU, ARM_COMPUTE_PROF_LVL_CPU, "NEConvolutionLayer::configure");
     // Perform validate step
@@ -79,13 +80,15 @@ void NEConvolutionLayer::configure(ITensor                   *input,
     ARM_COMPUTE_UNUSED(num_groups);
     ARM_COMPUTE_ERROR_THROW_ON(NEConvolutionLayer::validate(
         input->info(), weights->info(), ((biases != nullptr) ? biases->info() : nullptr), output->info(), conv_info,
-        weights_info, dilation, act_info, enable_fast_math, num_groups));
+        weights_info, dilation, act_info, enable_fast_math, num_groups, use_direct_i8_s8_f32));
     ARM_COMPUTE_LOG_PARAMS(input, weights, biases, output, conv_info, weights_info, dilation, act_info,
                            enable_fast_math, num_groups);
 
-    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups);
+    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups, weights_info, false,
+                          use_direct_i8_s8_f32);
     switch (cpu::CpuConv2d::get_convolution_method(input->info(), weights->info(), output->info(), conv_info,
-                                                   weights_info, dilation, act_info, enable_fast_math))
+                                                   weights_info, dilation, act_info, enable_fast_math,
+                                                   use_direct_i8_s8_f32))
     {
         case ConvolutionMethod::WINOGRAD:
         case ConvolutionMethod::GEMM:
@@ -94,7 +97,8 @@ void NEConvolutionLayer::configure(ITensor                   *input,
         {
             auto f = std::make_unique<cpu::CpuConv2d>();
             f->configure(input->info(), weights->info(), ((biases != nullptr) ? biases->info() : nullptr),
-                         output->info(), conv_info, weights_info, dilation, act_info, enable_fast_math, num_groups);
+                         output->info(), conv_info, weights_info, dilation, act_info, enable_fast_math, num_groups,
+                         use_direct_i8_s8_f32);
             _impl->op = std::move(f);
             break;
         }
@@ -131,10 +135,12 @@ Status NEConvolutionLayer::validate(const ITensorInfo         *input,
                                     const Size2D              &dilation,
                                     const ActivationLayerInfo &act_info,
                                     bool                       enable_fast_math,
-                                    unsigned int               num_groups)
+                                    unsigned int               num_groups,
+                                    bool                       use_direct_i8_s8_f32)
 {
     ARM_COMPUTE_TRACE_EVENT(ARM_COMPUTE_PROF_CAT_CPU, ARM_COMPUTE_PROF_LVL_CPU, "NEConvolutionLayer::validate");
-    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups);
+    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups, weights_info, false,
+                          use_direct_i8_s8_f32);
 
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(!weights->are_values_constant(), "Dynamic weights are not supported");
     ARM_COMPUTE_RETURN_ERROR_ON_DYNAMIC_SHAPE(input, weights, biases, output);
@@ -147,7 +153,7 @@ Status NEConvolutionLayer::validate(const ITensorInfo         *input,
     }
 
     switch (cpu::CpuConv2d::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info,
-                                                   enable_fast_math))
+                                                   enable_fast_math, use_direct_i8_s8_f32))
     {
         case ConvolutionMethod::WINOGRAD:
         case ConvolutionMethod::GEMM:
@@ -155,7 +161,7 @@ Status NEConvolutionLayer::validate(const ITensorInfo         *input,
         case ConvolutionMethod::DIRECT:
             ARM_COMPUTE_RETURN_ON_ERROR(cpu::CpuConv2d::validate(input, weights, biases, output, conv_info,
                                                                  weights_info, dilation, act_info, enable_fast_math,
-                                                                 num_groups));
+                                                                 num_groups, use_direct_i8_s8_f32));
             break;
         case ConvolutionMethod::FFT:
             ARM_COMPUTE_RETURN_ON_ERROR(
@@ -175,10 +181,11 @@ ConvolutionMethod NEConvolutionLayer::get_convolution_method(const ITensorInfo  
                                                              const WeightsInfo         &weights_info,
                                                              const Size2D              &dilation,
                                                              const ActivationLayerInfo &act_info,
-                                                             bool                       enable_fast_math)
+                                                             bool                       enable_fast_math,
+                                                             bool                       use_direct_i8_s8_f32)
 {
     return cpu::CpuConv2d::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info,
-                                                  enable_fast_math);
+                                                  enable_fast_math, use_direct_i8_s8_f32);
 }
 
 void NEConvolutionLayer::run()
