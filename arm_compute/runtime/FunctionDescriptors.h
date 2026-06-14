@@ -69,7 +69,8 @@ struct Conv2dInfo
                unsigned int               num_groups,
                const WeightsInfo         &weights_info         = WeightsInfo(),
                bool                       use_fp32_acc         = false,
-               bool                       use_direct_i8_s8_f32 = false)
+               bool                       use_direct_i8_s8_f32 = false,
+               bool                       use_direct_u8_u8_f32 = false)
         : conv_info(conv_info),
           dilation(dilation),
           act_info(act_info),
@@ -77,7 +78,8 @@ struct Conv2dInfo
           num_groups(num_groups),
           weights_info(weights_info),
           use_fp32_acc(use_fp32_acc),
-          use_direct_i8_s8_f32(use_direct_i8_s8_f32)
+          use_direct_i8_s8_f32(use_direct_i8_s8_f32),
+          use_direct_u8_u8_f32(use_direct_u8_u8_f32)
     {
     }
 
@@ -89,6 +91,7 @@ struct Conv2dInfo
     WeightsInfo         weights_info{};
     bool                use_fp32_acc{false};         // relevant only for FP16
     bool                use_direct_i8_s8_f32{false}; // route QASYMM8_SIGNED->F32 through CpuGemmDirectConv2d
+    bool                use_direct_u8_u8_f32{false};  // route QASYMM8->F32 through CpuGemmDirectConv2d
 };
 
 /** Descriptor used by the 3d Convolution function */

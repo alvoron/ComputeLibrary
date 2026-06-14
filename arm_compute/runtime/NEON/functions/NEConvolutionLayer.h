@@ -100,10 +100,11 @@ public:
      * |F16            |F16                |F16    |F16            |
      * |F32            |F32                |F32    |F32            |
      * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8        |QASYMM8            |F32    |F32            | (requires use_direct_u8_u8_f32=true, NHWC only)
      * |QASYMM8        |QASYMM8_SIGNED     |S32    |QASYMM8        |
      * |QASYMM8        |QSYMM8_PER_CHANNEL |S32    |QASYMM8        |
      * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
-     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |F32    |F32            |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |F32    |F32            | (requires use_direct_i8_s8_f32=true, NHWC only)
      * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
      *
      * @param[in]  input            Source tensor. 3 lower dimensions represent a single input [width, height, IFM],
@@ -127,6 +128,9 @@ public:
      * @param[in]  use_direct_i8_s8_f32 (Optional) When true and input is QASYMM8_SIGNED with F32 output,
      *                                  use the single-kernel CpuGemmDirectConv2d path. Requires NHWC layout,
      *                                  no dilation, and aarch64. Default is false.
+     * @param[in]  use_direct_u8_u8_f32 (Optional) When true and input is QASYMM8 with F32 output,
+     *                                  use the single-kernel CpuGemmDirectConv2d path. Requires NHWC layout,
+     *                                  no dilation, and aarch64. Default is false.
      */
     void configure(ITensor                   *input,
                    const ITensor             *weights,
@@ -138,7 +142,8 @@ public:
                    const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                    bool                       enable_fast_math     = false,
                    unsigned int               num_groups           = 1,
-                   bool                       use_direct_i8_s8_f32 = false);
+                   bool                       use_direct_i8_s8_f32 = false,
+                   bool                       use_direct_u8_u8_f32 = false);
     /** Static function to check if given info will lead to a valid configuration of @ref NEConvolutionLayer
      *
      * @param[in] input            Source tensor. 3 lower dimensions represent a single input [width, height, IFM],
@@ -160,6 +165,7 @@ public:
      * @param[in] enable_fast_math     (Optional) Enable fast math. Default is false.
      * @param[in] num_groups           (Optional) Number of groups. num_groups != 1 is not supported.
      * @param[in] use_direct_i8_s8_f32 (Optional) Enable single-kernel i8→f32 path. Default is false.
+     * @param[in] use_direct_u8_u8_f32 (Optional) Enable single-kernel u8→f32 path. Default is false.
      *
      * @return a status
      */
@@ -173,7 +179,8 @@ public:
                            const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                            bool                       enable_fast_math     = false,
                            unsigned int               num_groups           = 1,
-                           bool                       use_direct_i8_s8_f32 = false);
+                           bool                       use_direct_i8_s8_f32 = false,
+                           bool                       use_direct_u8_u8_f32 = false);
     /** Static function to check if given info will return the convolution called by @ref NEConvolutionLayer
      *
      * @param[in] input                Source tensor info.
@@ -185,6 +192,7 @@ public:
      * @param[in] act_info            (Optional) Fused activation.
      * @param[in] enable_fast_math    (Optional) Enable fast math. Default is false.
      * @param[in] use_direct_i8_s8_f32 (Optional) Force GEMM_CONV2D for i8→f32. Default is false.
+     * @param[in] use_direct_u8_u8_f32 (Optional) Force GEMM_CONV2D for u8→f32. Default is false.
      *
      * @return the Convolution Method Hint
      */
@@ -196,7 +204,8 @@ public:
                                                     const Size2D              &dilation             = Size2D(1U, 1U),
                                                     const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                                                     bool                       enable_fast_math     = false,
-                                                    bool                       use_direct_i8_s8_f32 = false);
+                                                    bool                       use_direct_i8_s8_f32 = false,
+                                                    bool                       use_direct_u8_u8_f32 = false);
     // Inherited methods overridden:
     void run() override;
     void prepare() override;

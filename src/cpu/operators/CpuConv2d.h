@@ -85,6 +85,7 @@ public:
      * |F16            |F16                |F16    |F16            |
      * |F32            |F32                |F32    |F32            |
      * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8        |QASYMM8            |F32    |F32            |
      * |QASYMM8        |QASYMM8_SIGNED     |S32    |QASYMM8        |
      * |QASYMM8        |QSYMM8_PER_CHANNEL |S32    |QASYMM8        |
      * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
@@ -92,6 +93,9 @@ public:
      * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
      *
      * The QASYMM8_SIGNED→F32 row (F32 bias, F32 dst) is only supported when @p use_direct_i8_s8_f32 is true.
+     * It requires NHWC layout and no dilation, and uses the single-kernel CpuGemmDirectConv2d path.
+     *
+     * The QASYMM8→F32 row (F32 bias, F32 dst) is only supported when @p use_direct_u8_u8_f32 is true.
      * It requires NHWC layout and no dilation, and uses the single-kernel CpuGemmDirectConv2d path.
      *
      * @param[in]  src                   Source tensor info.
@@ -106,6 +110,8 @@ public:
      * @param[in]  num_groups           (Optional) Number of groups. num_groups != 1 is not supported.
      * @param[in]  use_direct_i8_s8_f32 (Optional) When true and input is QASYMM8_SIGNED with F32 output,
      *                                   route via the single-kernel direct-conv path (NHWC, no dilation). Default is false.
+     * @param[in]  use_direct_u8_u8_f32 (Optional) When true and input is QASYMM8 with F32 output,
+     *                                   route via the single-kernel direct-conv path (NHWC, no dilation). Default is false.
      */
     void configure(ITensorInfo               *src,
                    ITensorInfo               *weights,
@@ -117,7 +123,8 @@ public:
                    const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                    bool                       enable_fast_math     = false,
                    unsigned int               num_groups           = 1,
-                   bool                       use_direct_i8_s8_f32 = false);
+                   bool                       use_direct_i8_s8_f32 = false,
+                   bool                       use_direct_u8_u8_f32 = false);
     /** Static function to check if given info will lead to a valid configuration of @ref CpuConv2d
      *
      * Similar to CpuConv2d::configure()
@@ -134,7 +141,8 @@ public:
                            const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                            bool                       enable_fast_math     = false,
                            unsigned int               num_groups           = 1,
-                           bool                       use_direct_i8_s8_f32 = false);
+                           bool                       use_direct_i8_s8_f32 = false,
+                           bool                       use_direct_u8_u8_f32 = false);
     /** Static function to check if given info will return the convolution called by @ref CpuConv2d
      *
      * @param[in] src                   Source tensor info.
@@ -145,8 +153,8 @@ public:
      * @param[in] dilation             (Optional) Dilation. Defaults to (1, 1).
      * @param[in] act_info             (Optional) Fused activation.
      * @param[in] enable_fast_math     (Optional) Enable fast math. Default is false.
-     * @param[in] use_direct_i8_s8_f32 (Optional) When true and input is QASYMM8_SIGNED with F32 output,
-     *                                  force GEMM_CONV2D method. Default is false.
+     * @param[in] use_direct_i8_s8_f32 (Optional) Force GEMM_CONV2D for QASYMM8_SIGNED→F32. Default is false.
+     * @param[in] use_direct_u8_u8_f32 (Optional) Force GEMM_CONV2D for QASYMM8→F32. Default is false.
      *
      * @return the Convolution Method Hint
      */
@@ -158,7 +166,8 @@ public:
                                                     const Size2D              &dilation             = Size2D(1U, 1U),
                                                     const ActivationLayerInfo &act_info             = ActivationLayerInfo(),
                                                     bool                       enable_fast_math     = false,
-                                                    bool                       use_direct_i8_s8_f32 = false);
+                                                    bool                       use_direct_i8_s8_f32 = false,
+                                                    bool                       use_direct_u8_u8_f32 = false);
     // Inherited methods overridden:
     void                             run(ITensorPack &tensors) override;
     void                             prepare(ITensorPack &constants) override;
