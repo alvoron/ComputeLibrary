@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2023 Arm Limited.
+ * Copyright (c) 2021, 2023-2026 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,6 +31,7 @@
 #include "src/cpu/operators/CpuActivation.h"
 #include "src/cpu/operators/CpuPermute.h"
 #include "src/cpu/operators/internal/CpuGemmAssemblyDispatch.h"
+#include "src/cpu/kernels/CpuConvertQuantizedSignednessKernel.h"
 
 namespace arm_compute
 {
@@ -55,6 +56,8 @@ public:
      * |:--------------|:--------------|:--------------|:--------------|
      * |QASYMM8        |QASYMM8        |S32            |QASYMM8        |
      * |QASYMM8_SIGNED |QASYMM8_SIGNED |S32            |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED |F32            |F32            | (requires Conv2dInfo::use_direct_i8_s8_f32=true)
+     * |QASYMM8        |QASYMM8        |F32            |F32            | (requires Conv2dInfo::use_direct_u8_u8_f32=true)
      * |F16            |F16            |F16            |F16            |
      * |F32            |F32            |F32            |F32            |
      * |BFLOAT16       |BFLOAT16       |BFLOAT16       |BFLOAT16       |
@@ -100,16 +103,20 @@ private:
         Pretranspose,
         /* Slots above (0-2) are reserved for CpuGemmAssemblyDispatch */
         PermutedWeights,
+        FlippedWeights, /* QASYMM8→QASYMM8_SIGNED conversion for u8/u8→f32 path */
         Count
     };
 
-    std::unique_ptr<CpuGemmAssemblyDispatch> _gemm_asm_func;
-    std::unique_ptr<CpuActivation>           _activation_func;
-    std::unique_ptr<CpuPermute>              _weights_permute_func;
-    experimental::MemoryRequirements         _aux_mem;
-    TensorInfo                               _perm_weights;
-    bool                                     _run_activation;
-    bool                                     _is_prepared;
+    std::unique_ptr<CpuGemmAssemblyDispatch>                          _gemm_asm_func;
+    std::unique_ptr<CpuActivation>                                    _activation_func;
+    std::unique_ptr<CpuPermute>                                       _weights_permute_func;
+    std::unique_ptr<kernels::CpuConvertQuantizedSignednessKernel>     _weights_flip_func; // QASYMM8→QASYMM8_SIGNED
+    experimental::MemoryRequirements                                  _aux_mem;
+    TensorInfo                                                        _perm_weights;
+    TensorInfo                                                        _flipped_weights;   // QASYMM8_SIGNED view
+    bool                                                              _flip_weights{false}; // u8→u8→f32 path
+    bool                                                              _run_activation;
+    bool                                                              _is_prepared;
 };
 } // namespace cpu
 } // namespace arm_compute

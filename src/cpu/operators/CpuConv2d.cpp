@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021, 2023-2025 Arm Limited.
+ * Copyright (c) 2017-2021, 2023-2026 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -53,21 +53,24 @@ void CpuConv2d::configure(ITensorInfo               *input,
                           const Size2D              &dilation,
                           const ActivationLayerInfo &act_info,
                           bool                       enable_fast_math,
-                          unsigned int               num_groups)
+                          unsigned int               num_groups,
+                          bool                       use_direct_i8_s8_f32,
+                          bool                       use_direct_u8_u8_f32)
 {
     ARM_COMPUTE_TRACE_EVENT(ARM_COMPUTE_PROF_CAT_CPU, ARM_COMPUTE_PROF_LVL_CPU, "CpuConv2d::configure");
     // Perform validate step
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, output);
-    ARM_COMPUTE_UNUSED(num_groups);
     ARM_COMPUTE_ERROR_THROW_ON(CpuConv2d::validate(input, weights, biases, output, conv_info, weights_info, dilation,
-                                                   act_info, enable_fast_math, num_groups));
+                                                   act_info, enable_fast_math, num_groups,
+                                                   use_direct_i8_s8_f32, use_direct_u8_u8_f32));
 
     ARM_COMPUTE_LOG_PARAMS(input, weights, biases, output, conv_info, weights_info, dilation, act_info,
                            enable_fast_math, num_groups);
 
-    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups);
+    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups, weights_info, false,
+                          use_direct_i8_s8_f32, use_direct_u8_u8_f32);
     switch (CpuConv2d::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info,
-                                              enable_fast_math))
+                                              enable_fast_math, use_direct_i8_s8_f32, use_direct_u8_u8_f32))
     {
         case ConvolutionMethod::WINOGRAD:
         {
@@ -114,14 +117,31 @@ Status CpuConv2d::validate(const ITensorInfo         *input,
                            const Size2D              &dilation,
                            const ActivationLayerInfo &act_info,
                            bool                       enable_fast_math,
-                           unsigned int               num_groups)
+                           unsigned int               num_groups,
+                           bool                       use_direct_i8_s8_f32,
+                           bool                       use_direct_u8_u8_f32)
 {
     ARM_COMPUTE_TRACE_EVENT(ARM_COMPUTE_PROF_CAT_CPU, ARM_COMPUTE_PROF_LVL_CPU, "CpuConv2d::validate");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG((num_groups != 1), "Grouping (num_groups != 1) is not supported on Neon");
 
-    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups);
+    const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, num_groups, weights_info, false,
+                          use_direct_i8_s8_f32, use_direct_u8_u8_f32);
+
+    // When the direct flag is explicitly requested, validate the direct path up-front so that
+    // any constraint violation is surfaced as an error rather than silently falling back.
+    if (use_direct_i8_s8_f32 && input->data_type() == DataType::QASYMM8_SIGNED &&
+        output->data_type() == DataType::F32)
+    {
+        ARM_COMPUTE_RETURN_ON_ERROR(CpuGemmDirectConv2d::validate(input, weights, biases, output, info));
+    }
+    if (use_direct_u8_u8_f32 && input->data_type() == DataType::QASYMM8 &&
+        output->data_type() == DataType::F32)
+    {
+        ARM_COMPUTE_RETURN_ON_ERROR(CpuGemmDirectConv2d::validate(input, weights, biases, output, info));
+    }
+
     switch (CpuConv2d::get_convolution_method(input, weights, output, conv_info, weights_info, dilation, act_info,
-                                              enable_fast_math))
+                                              enable_fast_math, use_direct_i8_s8_f32, use_direct_u8_u8_f32))
     {
         case ConvolutionMethod::WINOGRAD:
             ARM_COMPUTE_RETURN_ON_ERROR(
@@ -152,10 +172,33 @@ ConvolutionMethod CpuConv2d::get_convolution_method(const ITensorInfo         *i
                                                     const WeightsInfo         &weights_info,
                                                     const Size2D              &dilation,
                                                     const ActivationLayerInfo &act_info,
-                                                    bool                       enable_fast_math)
+                                                    bool                       enable_fast_math,
+                                                    bool                       use_direct_i8_s8_f32,
+                                                    bool                       use_direct_u8_u8_f32)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output, weights);
-    ARM_COMPUTE_UNUSED(weights_info);
+
+    // When the single-kernel i8->f32 path is requested, force GEMM_CONV2D (CpuGemmDirectConv2d).
+    if (use_direct_i8_s8_f32 && input->data_type() == DataType::QASYMM8_SIGNED &&
+        output->data_type() == DataType::F32)
+    {
+        const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, 1, weights_info, false, true, false);
+        if (bool(CpuGemmDirectConv2d::validate(input, weights, nullptr, output, info)))
+        {
+            return ConvolutionMethod::GEMM_CONV2D;
+        }
+    }
+
+    // When the single-kernel u8->f32 path is requested, force GEMM_CONV2D (CpuGemmDirectConv2d).
+    if (use_direct_u8_u8_f32 && input->data_type() == DataType::QASYMM8 &&
+        output->data_type() == DataType::F32)
+    {
+        const Conv2dInfo info(conv_info, dilation, act_info, enable_fast_math, 1, weights_info, false, false, true);
+        if (bool(CpuGemmDirectConv2d::validate(input, weights, nullptr, output, info)))
+        {
+            return ConvolutionMethod::GEMM_CONV2D;
+        }
+    }
 
     const size_t idx_w = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::WIDTH);
     const size_t idx_h = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::HEIGHT);

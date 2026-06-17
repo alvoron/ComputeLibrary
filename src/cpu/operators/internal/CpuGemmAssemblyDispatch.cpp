@@ -889,11 +889,13 @@ void create_arm_gemm_dequant(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback>
     // Create arm_gemm fallback
     auto fallback = std::make_unique<Fallback<TypeInput, TypeWeight, TypeOutput, arm_gemm::DequantizeFloat>>();
 
-    // Configure requantization info
-    const GEMMLowpOutputStageInfo os_info = info.output_stage;
-
+    // The dequantize scale is overridden in Fallback::configure via set_dequantize_scale.
+    // Offsets are taken from AsmGemmInfo (set by CpuGemmDirectConv2d; zero for other callers).
     arm_gemm::DequantizeFloat gemm_dequant_info{};
-    gemm_dequant_info = arm_gemm::DequantizeFloat(d->quantization_info().uniform().scale);
+    gemm_dequant_info = arm_gemm::DequantizeFloat(
+        a->quantization_info().uniform().scale * b->quantization_info().uniform().scale,
+        info.dequant_a_offset,
+        info.dequant_b_offset);
 
     fallback->configure(a, b, c, d, args, info, gemm_dequant_info);
     arm_gemm = std::move(fallback);
@@ -998,10 +1000,20 @@ Status CpuGemmAssemblyDispatch::has_opt_impl(arm_compute::WeightFormat &expected
             }
             else if (b->data_type() == DataType::QASYMM8_SIGNED)
             {
-                ARM_COMPUTE_RETURN_ERROR_ON_MSG(
-                    !(arm_gemm::has_opt_gemm<uint8_t, int8_t, uint8_t, arm_gemm::Requantize32>(arm_gemm_expected_wf,
-                                                                                               args, {})),
-                    "We could not find an optimized kernel for U8 input with S8 weights and U8 output");
+                if (d->data_type() == DataType::F32)
+                {
+                    ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+                        !(arm_gemm::has_opt_gemm<uint8_t, int8_t, float, arm_gemm::DequantizeFloat>(
+                            arm_gemm_expected_wf, args, {})),
+                        "We could not find an optimized kernel for U8 input with S8 weights and F32 output");
+                }
+                else
+                {
+                    ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+                        !(arm_gemm::has_opt_gemm<uint8_t, int8_t, uint8_t, arm_gemm::Requantize32>(
+                            arm_gemm_expected_wf, args, {})),
+                        "We could not find an optimized kernel for U8 input with S8 weights and U8 output");
+                }
             }
             else
             {
@@ -1019,6 +1031,13 @@ Status CpuGemmAssemblyDispatch::has_opt_impl(arm_compute::WeightFormat &expected
                     !(arm_gemm::has_opt_gemm<int8_t, int8_t, int32_t, arm_gemm::Nothing>(arm_gemm_expected_wf, args,
                                                                                          {})),
                     "We could not find an optimized kernel for S8/QASYMM8_SIGNED input and S32 output");
+            }
+            else if (d->data_type() == DataType::F32)
+            {
+                ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+                    !(arm_gemm::has_opt_gemm<int8_t, int8_t, float, arm_gemm::DequantizeFloat>(arm_gemm_expected_wf,
+                                                                                               args, {})),
+                    "We could not find an optimized kernel for S8/QASYMM8_SIGNED input and F32 output");
             }
             else
             {
@@ -1130,6 +1149,11 @@ Status CpuGemmAssemblyDispatch::validate(
         a->data_type() == DataType::QASYMM8 &&
             (d->data_type() != DataType::QASYMM8 && d->data_type() != DataType::S32 && d->data_type() != DataType::F32),
         "Only QASYMM8/S32/F32 output supported for QASYMM8 input");
+    ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+        a->data_type() == DataType::QASYMM8_SIGNED &&
+            (d->data_type() != DataType::QASYMM8_SIGNED && d->data_type() != DataType::S32 &&
+             d->data_type() != DataType::F32),
+        "Only QASYMM8_SIGNED/S32/F32 output supported for QASYMM8_SIGNED input");
     arm_compute::WeightFormat expected_weight_format = arm_compute::WeightFormat::UNSPECIFIED;
     const Status              ret = CpuGemmAssemblyDispatch::has_opt_impl(expected_weight_format, a, b, c, d, info);
     if (bool(ret) && expected_weight_format != arm_compute::WeightFormat::ANY)
