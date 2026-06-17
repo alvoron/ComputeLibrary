@@ -998,10 +998,20 @@ Status CpuGemmAssemblyDispatch::has_opt_impl(arm_compute::WeightFormat &expected
             }
             else if (b->data_type() == DataType::QASYMM8_SIGNED)
             {
-                ARM_COMPUTE_RETURN_ERROR_ON_MSG(
-                    !(arm_gemm::has_opt_gemm<uint8_t, int8_t, uint8_t, arm_gemm::Requantize32>(arm_gemm_expected_wf,
-                                                                                               args, {})),
-                    "We could not find an optimized kernel for U8 input with S8 weights and U8 output");
+                if (d->data_type() == DataType::F32)
+                {
+                    ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+                        !(arm_gemm::has_opt_gemm<uint8_t, int8_t, float, arm_gemm::DequantizeFloat>(
+                            arm_gemm_expected_wf, args, {})),
+                        "We could not find an optimized kernel for U8 input with S8 weights and F32 output");
+                }
+                else
+                {
+                    ARM_COMPUTE_RETURN_ERROR_ON_MSG(
+                        !(arm_gemm::has_opt_gemm<uint8_t, int8_t, uint8_t, arm_gemm::Requantize32>(
+                            arm_gemm_expected_wf, args, {})),
+                        "We could not find an optimized kernel for U8 input with S8 weights and U8 output");
+                }
             }
             else
             {
