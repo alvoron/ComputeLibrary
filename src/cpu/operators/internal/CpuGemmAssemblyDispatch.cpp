@@ -242,6 +242,13 @@ public:
         _is_prepared = is_prepared;
     }
 
+    /** Copy per-channel dequantize scales into storage with kernel lifetime; returns a stable pointer. */
+    const float *store_per_channel_dequant_scales(const std::vector<float> &scales)
+    {
+        _dequant_per_channel_scales = scales;
+        return _dequant_per_channel_scales.data();
+    }
+
 private:
     enum AuxTensorIdx
     {
@@ -284,6 +291,8 @@ private:
     std::vector<int32_t> left_shifts{};
     /** Per channel quantization multipliers */
     std::vector<int32_t> _multipliers{};
+    /** Per channel dequantize scales (owned copy; arm_gemm::DequantizeFloat keeps a raw pointer into it) */
+    std::vector<float> _dequant_per_channel_scales{};
     /** Indirect buffer */
     std::vector<const TypeInput *const *> _indirect_arg{};
     std::vector<const TypeInput *>        _indirect_buf{};
@@ -896,6 +905,16 @@ void create_arm_gemm_dequant(std::unique_ptr<CpuGemmAssemblyDispatch::IFallback>
         a->quantization_info().uniform().scale * b->quantization_info().uniform().scale,
         info.dequant_a_offset,
         info.dequant_b_offset);
+
+    // For per-channel weight quantization, hand dequantize_block_32 a per-output-channel
+    // scale array. ITensorInfo::quantization_info() returns by value, so the scale vector
+    // must be copied into storage owned by the Fallback (kernel lifetime) — taking
+    // .scale().data() of the temporary would leave a dangling pointer.
+    if (b->quantization_info().scale().size() > 1)
+    {
+        gemm_dequant_info.per_channel_scales =
+            fallback->store_per_channel_dequant_scales(b->quantization_info().scale());
+    }
 
     fallback->configure(a, b, c, d, args, info, gemm_dequant_info);
     arm_gemm = std::move(fallback);

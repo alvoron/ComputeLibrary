@@ -996,7 +996,12 @@ void dequantize_block_32<float>(const DequantizeFloat &qp, unsigned int width, u
                          const float* bias_ptr, bool accumulate, const Activation &act,
                          const int32_t *col_bias, const int32_t *row_sum, int32_t k_total)
 {
-    const float32x4_t vscale = vdupq_n_f32(qp.scale);
+    // Per-channel path: qp.per_channel_scales is an array indexed by output channel
+    // (already offset to the start of this tile's column block by the caller).
+    // When null, fall back to the uniform scalar qp.scale.
+    const bool per_channel = (qp.per_channel_scales != nullptr);
+    const float32x4_t vscale = per_channel ? vdupq_n_f32(0.0f) : vdupq_n_f32(qp.scale);
+
     float maxval = std::numeric_limits<float>::infinity();
     float minval = -std::numeric_limits<float>::infinity();
 
@@ -1022,6 +1027,9 @@ void dequantize_block_32<float>(const DequantizeFloat &qp, unsigned int width, u
         // Per-row addend from b_offset correction: -b_offset * sum_a_row[m] * scale
         // row_sum values are packed with multiplier=1, so entry is plain sum(a_row[k]).
         // Also add the cross-term: +a_offset * b_offset * K * scale (constant per tile).
+        // NOTE: when per_channel_scales is set these corrections use qp.scale as a
+        // representative; they are exact when both offsets are 0 (the common case for
+        // symmetric quantization), which is the only currently supported per-channel path.
         float row_offset = 0.0f;
         if (row_sum != nullptr) {
             row_offset += static_cast<float>(-qp.b_offset * row_sum[row]) * qp.scale;
@@ -1037,7 +1045,11 @@ void dequantize_block_32<float>(const DequantizeFloat &qp, unsigned int width, u
         if (width >= 4) {
             for(; col <= (width - 4); col+= 4) {
                 const int32x4_t vin = vld1q_s32(row_in_ptr + col);
-                float32x4_t vdeq = vmulq_f32(vcvtq_f32_s32(vin), vscale);
+                // Use per-channel scales when available, otherwise broadcast scalar.
+                const float32x4_t vscale_c = per_channel
+                    ? vld1q_f32(qp.per_channel_scales + col)
+                    : vscale;
+                float32x4_t vdeq = vmulq_f32(vcvtq_f32_s32(vin), vscale_c);
                 if(bias_ptr) {
                     vdeq = vaddq_f32(vdeq, vld1q_f32(bias_ptr + col));
                 }
@@ -1061,7 +1073,8 @@ void dequantize_block_32<float>(const DequantizeFloat &qp, unsigned int width, u
         // left-over elements
         for(; col < width; ++col) {
             const int32_t val = *(row_in_ptr + col);
-            float res = static_cast<float>(val) * qp.scale;
+            const float scale_c = per_channel ? qp.per_channel_scales[col] : qp.scale;
+            float res = static_cast<float>(val) * scale_c;
             if(bias_ptr) {
                 res += static_cast<float>(*(bias_ptr + col));
             }

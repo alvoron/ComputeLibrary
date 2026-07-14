@@ -240,9 +240,14 @@ public:
 struct DequantizeFloat
 {
 public:
-    float   scale    = 0;
-    int32_t a_offset = 0; // input quantization zero-point  (subtract from each input value)
-    int32_t b_offset = 0; // weight quantization zero-point (subtract from each weight value)
+    float         scale              = 0;
+    int32_t       a_offset           = 0; // input quantization zero-point  (subtract from each input value)
+    int32_t       b_offset           = 0; // weight quantization zero-point (subtract from each weight value)
+    // Per-output-channel dequantization scales.  When non-null, indexed by output
+    // channel and used instead of the scalar `scale`.  The pointer is caller-owned
+    // and must stay valid for the lifetime of the kernel (typically the enclosing
+    // CpuGemmDirectConv2d, which owns the permuted weight TensorInfo).
+    const float  *per_channel_scales = nullptr;
 
     DequantizeFloat() = default;
 

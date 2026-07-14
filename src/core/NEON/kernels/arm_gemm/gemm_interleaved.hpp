@@ -334,7 +334,15 @@ void kernel_and_merge<true, false, DequantizeFloat>::run(
             unsigned int n_start = n_0 + (strategy::out_width() * i);
             unsigned int n_end = std::min(n_start + strategy::out_width(), n_max);
 
-            dequantize_block_32(qp, (n_end - n_start), (m_max - m_0),
+            // For per-channel dequantisation, create a tile-local view of qp with
+            // per_channel_scales pre-offset to the start of this column block, mirroring
+            // how bias and col_bias are offset by n_start before the call.
+            DequantizeFloat qp_tile = qp;
+            if (qp.per_channel_scales != nullptr) {
+                qp_tile.per_channel_scales = qp.per_channel_scales + n_start;
+            }
+
+            dequantize_block_32(qp_tile, (n_end - n_start), (m_max - m_0),
                             c_panel + (i * strategy::out_width() * strategy::out_height()), strategy::out_width(),
                             c_ptr + m_0 * ldc + n_start, ldc,
                             bias != nullptr ? bias + n_start : nullptr, not_first_pass, act,
@@ -1393,7 +1401,11 @@ public:
     void set_dequantize_scale(const float scale) override {
         if(std::is_same<OutputStage, DequantizeFloat>::value) {
             DequantizeFloat* df = reinterpret_cast<DequantizeFloat *>(&_os);
-            df->scale = scale;
+            // Only update the scalar when per-channel scales are not already set;
+            // otherwise a uniform() lookup would silently discard the per-channel data.
+            if (df->per_channel_scales == nullptr) {
+                df->scale = scale;
+            }
         }
     }
 
