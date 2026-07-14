@@ -140,7 +140,8 @@ void CpuGemmDirectConv2d::configure(const ITensorInfo *src,
 
     _run_activation = info.act_info.enabled() && !_gemm_asm_func->is_activation_supported(info.act_info);
     _is_prepared    = false;
-    _flip_weights   = is_direct_u8_u8_f32_path(src, dst, info);
+    // Flip u8 weights to i8
+    _flip_weights   = is_direct_u8_u8_f32_path(src, dst, info) && weights->data_type() == DataType::QASYMM8;
 
     _weights_permute_func->configure(weights, &_perm_weights, PermutationVector{3, 0, 1, 2});
 
@@ -174,6 +175,13 @@ void CpuGemmDirectConv2d::configure(const ITensorInfo *src,
         // b_offset: QASYMM8 offset adjusted by −128 (to match int8 reinterpretation of weights).
         asm_info.dequant_a_offset = src->quantization_info().uniform().offset;
         asm_info.dequant_b_offset = weights->quantization_info().uniform().offset - 128;
+    }
+    else if (is_direct_u8_u8_f32_path(src, dst, info))
+    {
+        // u8/i8->f32: src is QASYMM8, weights are already QASYMM8_SIGNED (no flip needed)
+        // Same uint8+int8→float assembly kernel; offset correction applied directly
+        asm_info.dequant_a_offset = src->quantization_info().uniform().offset;
+        asm_info.dequant_b_offset = weights->quantization_info().uniform().offset;
     }
     else if (is_data_type_quantized(src->data_type()))
     {
@@ -259,11 +267,11 @@ Status CpuGemmDirectConv2d::validate(const ITensorInfo *src,
     if (direct_u8_f32)
     {
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(src, 1, DataType::QASYMM8);
-        ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(weights, 1, DataType::QASYMM8);
+        // Accept either u8 weights (will be flipped to i8) or i8 weights (used directly).
+        ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(weights, 1, DataType::QASYMM8,
+                                                             DataType::QASYMM8_SIGNED);
         ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(dst, 1, DataType::F32);
         // Offset correction handled inside the assembly kernel via DequantizeFloat output stage.
-        // Weights are reinterpreted as QASYMM8_SIGNED (subtract 128) before passing to the
-        // uint8+int8→float assembly kernel.
     }
 
     // Validate Permute.  Build the expected output TensorInfo explicitly so that
@@ -273,8 +281,8 @@ Status CpuGemmDirectConv2d::validate(const ITensorInfo *src,
     TensorInfo perm_weights = weights->clone()->set_tensor_shape(perm_shape);
     ARM_COMPUTE_RETURN_ON_ERROR(CpuPermute::validate(weights, &perm_weights, PermutationVector{3, 0, 1, 2}));
 
-    // For u8/u8→f32: validate the signedness flip (QASYMM8→QASYMM8_SIGNED)
-    if (direct_u8_f32)
+    // Weights that are already QASYMM8_SIGNED skip the flip entirely.
+    if (direct_u8_f32 && perm_weights.data_type() == DataType::QASYMM8)
     {
         TensorInfo flipped_weights;
         ARM_COMPUTE_RETURN_ON_ERROR(
@@ -314,12 +322,9 @@ Status CpuGemmDirectConv2d::validate(const ITensorInfo *src,
     }
 
     cpu::AsmGemmInfo asm_info = init_assembly_metadata(info, false);
-    if (direct_u8_f32)
+    if (direct_u8_f32 && perm_weights.data_type() == DataType::QASYMM8)
     {
-        // Assembly expects QASYMM8 input + QASYMM8_SIGNED weights → F32.
-        // Construct the QASYMM8_SIGNED flipped-weights TensorInfo manually (same as
-        // CpuConvertQuantizedSignednessKernel::configure would produce) so the assembly
-        // dispatch can validate against a fully initialised TensorInfo.
+        // u8 weights: flip to QASYMM8_SIGNED before passing to assembly dispatch.
         const auto src_qinfo  = perm_weights.quantization_info().uniform();
         const auto flipped_qi = QuantizationInfo(src_qinfo.scale, src_qinfo.offset - 128);
         TensorInfo flipped_weights(perm_weights.tensor_shape(), 1,
@@ -329,6 +334,12 @@ Status CpuGemmDirectConv2d::validate(const ITensorInfo *src,
             &perm_weights, &flipped_weights));
         ARM_COMPUTE_RETURN_ON_ERROR(
             cpu::CpuGemmAssemblyDispatch::validate(src, &flipped_weights, biases, dst, asm_info));
+    }
+    else if (direct_u8_f32)
+    {
+        // i8 weights: already QASYMM8_SIGNED, pass permuted weights directly.
+        ARM_COMPUTE_RETURN_ON_ERROR(
+            cpu::CpuGemmAssemblyDispatch::validate(src, &perm_weights, biases, dst, asm_info));
     }
     else
     {
